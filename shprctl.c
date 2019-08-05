@@ -20,7 +20,6 @@ const char * cr_cnt ="/sys/class/fpga/fpga0/device/features/RX_RATE_LIMIT/cr_cnt
 const char * sr_base ="/sys/class/fpga/fpga0/device/features/RX_RATE_LIMIT/sr_base";
 const char * sr_cnt ="/sys/class/fpga/fpga0/device/features/RX_RATE_LIMIT/sr_cnt";
 
-// char buf[SIZE];
 struct globalArgs_t {
 	int port;
     int sector;
@@ -59,17 +58,40 @@ int regs(FILE *f, const char *path)
 	if(fgets(y, sizeof(y), f))
 	{
 		x = atoi(y);
-		// printf("%s: %d\n", path, x);
 	}
 
 	cl = fclose(f);
 	return x;
 }
 
+int is_enabled(int addr)
+{
+    FILE *fp;
+    unsigned short val = 0, f;
+	if((fp=fopen("/dev/etn", "rb"))==NULL) 
+	{
+		printf("Cannot open file.");
+		return 1;
+	}
+	
+    if(fseek(fp, addr*SIZE, SEEK_SET) )
+	{
+		printf("seek error\n");
+		return 1;
+	}
+	if(fread(&val, 2, 1, fp) != 1)
+	{
+		printf("read error\n");
+		return 1;
+	}
+    
+	int c = fclose(fp);
+	return val%2;
+}
+
 int reg_write(int addr, unsigned short val) 
 {
 	FILE *fp;
-
 
 	if((fp=fopen("/dev/etn", "wb"))==NULL) 
 	{
@@ -93,6 +115,21 @@ int reg_write(int addr, unsigned short val)
 	return 0;
 }
 
+int enable(int addr)
+{
+    reg_write(addr, 1);
+
+    return 0;
+}
+
+int disable(int addr)
+{
+    reg_write(addr, 0);
+
+    return 0;
+}
+
+
 int reg_read(int addr)
 {
 	FILE *fp;
@@ -114,38 +151,44 @@ int reg_read(int addr)
 		return 1;
 	}
 
-    // printf("0x%d: 0x%x \n", addr, val);
 	int c = fclose(fp);
 	return val;
 }
 
+int get_rate(int addr)
+{
+    int value;
+    value = reg_read(addr+RATE_REG)*coeff;
+
+    return value;
+}
+
+char * get_priv(int addr)
+{
+    char * value;
+    if(reg_read(addr + PRIV_REG)==0)
+        value = "both";
+    else if(reg_read(addr + PRIV_REG) == 1)
+        value  = "user";
+    else if(reg_read(addr + PRIV_REG)==2)
+        value = "mpt";
+    else if(reg_read(addr + PRIV_REG)==3)
+        value = "none";
+    
+    return value;
+}
+
 int set_rate(int addr, int rate)
 {
-    if(reg_read(addr)==1)
-    {        
-        reg_write(addr + STAT_REG, 0);  
-        reg_write(addr + RATE_REG, rate);
-        reg_write(addr + STAT_REG, 1);
-    }
-    else
-        reg_write(addr + RATE_REG, rate);
-    // printf("%d\n",);
+    reg_write(addr + RATE_REG, rate);
 
-    // reg_read(addr + RATE_REG);
     return 0;
 }
 
 int set_priv(int addr, int priv)
 {
-    if(reg_read(addr)==1)
-    {        
-        reg_write(addr + STAT_REG, 0);  
-        reg_write(addr + PRIV_REG, priv);
-        reg_write(addr + STAT_REG, 1);
-    }
-    else reg_write(addr + PRIV_REG, priv);
-    // printf("%d\n",);
-        // reg_read(addr + PRIV_REG);
+    reg_write(addr + PRIV_REG, priv);
+
     return 0;
 }
 
@@ -167,7 +210,6 @@ int define_priv(const char *priv)
         printf("Wrong argument 'set-priv'.\n");
     }  
 
-    // printf("Priv: %s\n", priv);
     return x;
 }
 
@@ -195,24 +237,22 @@ int display_status()
 {
     char * str;
     printf("Port %d\n", globalArgs.port);
-    printf("Shaper status:\t\t%d\n", reg_read(globalArgs.sector));
-    printf("Speed rate, bps:\t%d\n", reg_read(globalArgs.sector + RATE_REG)*coeff);
-    if(reg_read(globalArgs.sector + PRIV_REG)==0)
-        str = "both";
-    else if(reg_read(globalArgs.sector + PRIV_REG) == 1)
-        str  = "user";
-    else if(reg_read(globalArgs.sector + PRIV_REG)==2)
-        str = "mpt";
-    else if(reg_read(globalArgs.sector + PRIV_REG)==3)
-        str = "none";
-    printf("Traffic privilege:\t%s\n", str);
+    if(is_enabled(globalArgs.sector))
+        printf("Shaper status:\t\tenabled\n");
+    else
+        printf("Shaper status:\t\tdisabled\n");
+        
+    printf("Speed rate, bps:\t%d\n", get_rate(globalArgs.sector));
+
+    printf("Traffic privilege:\t%s\n", get_priv(globalArgs.sector));
     
     return 0;
 }
 
 int get_options(int argc, char *argv[])
 {
-    int opt = 0, longIndex =0;
+    int opt = 0, longIndex = 0;
+    double s;
 
     globalArgs.port = -1;
     globalArgs.sector = 0;
@@ -221,26 +261,30 @@ int get_options(int argc, char *argv[])
     globalArgs.priv = -1;
     globalArgs.flag = -1;
 
-    opt = getopt_long( argc, argv, optString, longOpts, &longIndex );
-
+    
     while( opt != -1 ) {
-		switch( opt ) {
+		opt = getopt_long( argc, argv, optString, longOpts, &longIndex );
+        switch( opt ) {
 		    case 'P': //port = {0..1};
-                printf("port\n");
-				globalArgs.port = atoi(optarg);
+                globalArgs.port = atoi(optarg);
+                if ((globalArgs.port != 0) && (globalArgs.port != 1))
+                    printf("Wrong port number.\n");
 				break;
+
+			case 's': //Port and it's status(on/off), rate(bps) and priviledges.
+                globalArgs.status = 1;                
+                break;
 				
 			case 'r': // set-rate = {250000 .. 10^9};
-                printf("rate\n");
-                double s = atoi(optarg);
-                    if (s>=1000000000)
+                s = atoi(optarg);
+                    if (s>=MAX_SPEED)
                     {
-                        printf("The rate should be less than 1'000'000'000.\n");
+                        printf("The rate should be less than %d.\n", MAX_SPEED);
                         return 1;
                     }
                     else if(atoi(optarg)<coeff)
                     {
-                        printf("The minimal rate is 250'000.\n");
+                        printf("The minimal rate is %d.\n", coeff);
                         return 1;
                     } 
                     else
@@ -248,12 +292,11 @@ int get_options(int argc, char *argv[])
 				break;
 				
 			case 'p': // set-priv = {both/user/mpt/none}
-                printf("priv\n");
                 globalArgs.priv = define_priv(optarg); 
 				break;
 
-			case 'e': //enable 
-                globalArgs.flag = 1;                              
+			case 'e': //enable
+                globalArgs.flag = 1;
 				break;
                 				
 			case 'd': //disable
@@ -265,10 +308,6 @@ int get_options(int argc, char *argv[])
                 exit(0);
 				break;
 
-			case 's': //Port and it's status(on/off), rate(bps) and priviledges.
-                globalArgs.status = 1;                
-                break;
-
 			case 'h':
                 display_usage(argv[0]);
                 exit(0);
@@ -278,17 +317,25 @@ int get_options(int argc, char *argv[])
                 exit(1);
                 break;
 			case 0:
+                printf("Case 0. \n");
 				display_usage(argv[0]);
                 return 1;
 				break;
 			
 			default:
-				
+
 				break;
 		}		
-		opt = getopt_long( argc, argv, optString, longOpts, &longIndex );
     }
     
+    if (optind < argc) {
+        printf("Wrong arguments: ");
+        while (optind < argc)
+            printf("%s ", argv[optind++]);
+        printf("\n");
+        display_usage(argv[0]);
+        exit(0);
+    }
     return 0;
 }
 
@@ -306,30 +353,47 @@ int main(int argc, char *argv[])
 	srb = regs(sr_b, sr_base);
 	src = regs(sr_c, sr_cnt);
 	
-    unsigned int speed = 0;
+    unsigned int speed = 0;       
     
     if(globalArgs.port==0)
         globalArgs.sector = crb + STAT_REG;
-    else if(globalArgs.port==1)
-        globalArgs.sector = crb + crc + STAT_REG;       
-    else{
-        printf("Wrong port number.\n");
+    else 
+        if(globalArgs.port==1)
+            globalArgs.sector = crb + crc + STAT_REG;
+
+    if(argc<=2)
+    {
         display_usage(argv[0]);
-        return 1;
+        exit(0);
     }
+
+    if(globalArgs.flag==1)
+        enable(globalArgs.sector);
+    else if (globalArgs.flag==0)
+        disable(globalArgs.sector);
+
+    if(globalArgs.rate > 0)
+        if(is_enabled(globalArgs.sector))
+        {
+            disable(globalArgs.sector);
+            set_rate(globalArgs.sector, globalArgs.rate);
+            enable(globalArgs.sector);
+        }
+        else 
+            set_rate(globalArgs.sector, globalArgs.rate);
+            
+    if(globalArgs.priv!=-1)
+        if(is_enabled(globalArgs.sector))
+        {
+            disable(globalArgs.sector);
+            set_priv(globalArgs.sector, globalArgs.priv);
+            enable(globalArgs.sector);
+        }
+        else
+            set_priv(globalArgs.sector, globalArgs.priv);
     
     if(globalArgs.status)
         display_status();
-
-
-    if(globalArgs.rate > 0)
-        set_rate(globalArgs.sector, globalArgs.rate);
-    
-    if(globalArgs.priv!=-1)
-        set_priv(globalArgs.sector, globalArgs.priv);
-
-    if (globalArgs.flag!=-1)
-        reg_write(globalArgs.sector, globalArgs.flag);    
 
 	return 0;
 }
