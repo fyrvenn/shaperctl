@@ -1,20 +1,21 @@
 ##Compiler
-CC=arm-linux-gnueabihf-gcc
-
+CROSS_COMPILE=arm-linux-gnueabihf-
+CC=$(CROSS_COMPILE)gcc
 ##Flags
-SHPCTRL=shprctl
-CFLAGS=
-LDFLAGS=
+TARGET=shprctl
 
-.PHONY: all clean shprctl
+.PHONY: all clean distclean
 
-all: $(SHPCTRL)
+all: $(TARGET)
 
-$(SHPCTRL): $(SHPCTRL).o
-	$(CC) $< -o $@ $(LDFLAGS)
+$(TARGET): $(TARGET).o
+	$(CC) $< -o $@
 
-$(SHPCTRL).o: shprctl.c
-	$(CC) $(CFLAGS) -c $< -o $@
+$(TARGET).o: $(TARGET).c
+	$(CC) -c $< -o $@
 
 clean:
-	rm -rf $(SHPCTRL) 
+	rm -rf $(TARGET).o
+
+distclean:
+	rm -rf $(TARGET) 

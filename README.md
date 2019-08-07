@@ -40,6 +40,8 @@ $ make
 
 Katerina Budnikova
 
+mail: e.budnikova@metrotek.ru
+
 ## Date
 
 Tue, 06 Aug 2019 17:10:54 +0300
