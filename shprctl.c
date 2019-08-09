@@ -20,7 +20,7 @@
 #define MPT "mpt"
 #define NONE "none"
 
-/* Speed coefficient, bps per token */
+/* Speed coefficient bps per token, also the minimum possible speed rate. */
 #define COEFF 250000
 
 /* Mask for enable/disable shaper.*/
@@ -285,7 +285,7 @@ int display_usage(char *progname)
     printf("Usage: %s --port={0|1} [OPTIONS]\n", progname);
     printf("Arguments:\n");
     printf("\t-p\t--set-priv={both|user|mpt|none}\n");
-    printf("\t-r\t--set-rate={Speed rate, bps}\n");
+    printf("\t-r\t--set-rate={Speed rate, bps}, in range %d .. %d\n", COEFF, MAX_SPEED);
     printf("\t-e\t--enable\n");
     printf("\t-d\t--disable\n");
     printf("\t-s\t--status\n");
@@ -296,6 +296,8 @@ int display_usage(char *progname)
 int display_status()
 {
     uint16_t t;
+    int status;
+    char * priv;
 
     if ((global_args.port != 0) && (global_args.port != 1))
     {
@@ -305,9 +307,10 @@ int display_status()
     else 
         printf("Port %d\n", global_args.port);
 
-    if (is_enabled(global_args.sector) == 1)
+    status = is_enabled(global_args.sector);
+    if (status == 1)
         printf("Shaper status:\t\tenabled\n");
-    else if (is_enabled(global_args.sector) == 0)
+    else if (status == 0)
         printf("Shaper status:\t\tdisabled\n");
     else
     {
@@ -323,13 +326,14 @@ int display_status()
     else    
         printf("Speed rate, bps:\t%d\n", t*COEFF);
 
-    if (get_priv(global_args.sector) == NULL)
+    priv = get_priv(global_args.sector);
+    if (priv == NULL)
     {
         fprintf( stderr, "check priv failed\n");
         return -1;
     }
     else
-        printf("Traffic privilege:\t%s\n", get_priv(global_args.sector));
+        printf("Traffic privilege:\t%s\n", priv);
 
     return 0;
 }
@@ -338,6 +342,7 @@ int get_options(int argc, char *argv[])
 {
     int opt = 0, longIndex = 0;
     double s;
+    char * end;
 
     global_args.port = -1;
     global_args.sector = 0;
@@ -350,9 +355,9 @@ int get_options(int argc, char *argv[])
         opt = getopt_long( argc, argv, optString, longOpts, &longIndex );
         switch( opt ) {
             case 'P': //port = {0..1};
-                if (strncmp(optarg, "0", 2) == 0)
+                if (strncmp(optarg, "0", sizeof(optarg)) == 0)
                     global_args.port = 0;
-                else if (strncmp(optarg, "1", 2) == 0)
+                else if (strncmp(optarg, "1", sizeof(optarg)) == 0)
                     global_args.port = 1;
                 else
                 {
@@ -370,19 +375,24 @@ int get_options(int argc, char *argv[])
                 }                
                 break;
             case 'r': // set-rate = {250000 .. 10^9};
-                s = atoi(optarg);
-                    if (s >= MAX_SPEED)
-                    {
-                        printf("The rate should be less than %d.\n", MAX_SPEED);
-                        return 1;
-                    }
-                    else if (atoi(optarg) < COEFF)
-                    {
-                        printf("The minimal rate is %d.\n", COEFF);
-                        return 1;
-                    }
-                    else
-                    global_args.rate = s/COEFF;
+                s = strtol (optarg, &end, 10);
+                if ((strlen(end) != 0) || (strlen(optarg) == 0))
+                {
+                    printf("Error input rate\n");
+                    return -1;
+                }   
+                if (s >= MAX_SPEED)
+                {
+                    printf("The rate should be less than %d.\n", MAX_SPEED);
+                    return -1;
+                }
+                else if (atoi(optarg) < COEFF)
+                {
+                    printf("The minimal rate is %d.\n", COEFF);
+                    return -1;
+                }
+                else
+                global_args.rate = s/COEFF;
                 break;
             case 'p': // set-priv = {both/user/mpt/none}
                 global_args.priv = define_priv(optarg);
@@ -405,7 +415,7 @@ int get_options(int argc, char *argv[])
                 exit(-1);
                 break;
             case 0:
-                return 1;
+                return -1;
                 break;
             default:
                 break;
@@ -429,7 +439,12 @@ int main(int argc, char * argv[])
     int sector, numread, c;
     int crb, crc, srb, src, address, port, index;
 
-    c = get_options(argc, argv);
+    if (c = get_options(argc, argv) == -1)
+    {
+        // fprintf(stderr, "Wrong arguments.\n");
+        display_usage(argv[0]);
+        return -1;
+    }
 
     crb = read_offsets(cr_b, cr_base);
     crc = read_offsets(cr_c, cr_cnt);
@@ -472,12 +487,28 @@ int main(int argc, char * argv[])
     if (global_args.rate > 0)
         if (is_enabled(global_args.sector) == 1)
         {
-            disable(global_args.sector);
-            set_rate(global_args.sector, global_args.rate);
-            enable(global_args.sector);
+            if (disable(global_args.sector) == -1)
+            {
+                fprintf(stderr, "disable failed\n");
+                return -1;
+            } 
+            if (set_rate(global_args.sector, global_args.rate) == -1)
+            {
+                fprintf(stderr, "set_rate failed\n");
+                return -1;
+            }
+            if (enable(global_args.sector) == -1)
+            {
+                fprintf(stderr, "enable failed\n");
+                return -1;
+            }
         }
         else if (is_enabled(global_args.sector) == 0)
-            set_rate(global_args.sector, global_args.rate);
+            if (set_rate(global_args.sector, global_args.rate) == -1)
+            {
+                fprintf(stderr, "set_rate failed\n");
+                return -1;
+            }
         else
         {
             fprintf(stderr, "check is_enabled failed\n");
@@ -487,12 +518,28 @@ int main(int argc, char * argv[])
     if (global_args.priv != -1)
         if (is_enabled(global_args.sector) == 1)
         {
-            disable(global_args.sector);
-            set_priv(global_args.sector, global_args.priv);
-            enable(global_args.sector);
+            if (disable(global_args.sector) == -1)
+            {
+                fprintf(stderr, "disable failed\n");
+                return -1;
+            }
+            if (set_priv(global_args.sector, global_args.priv) == -1)
+            {
+                fprintf(stderr, "set_priv failed\n");
+                return -1;
+            }
+            if (enable(global_args.sector) == -1)
+            {
+                fprintf(stderr, "enable failed\n");
+                return -1;
+            }
         }
         else if (is_enabled(global_args.sector) == 0)
-            set_priv(global_args.sector, global_args.priv);
+            if (set_priv(global_args.sector, global_args.priv) == -1)
+            {
+                fprintf(stderr, "set_priv failed\n");
+                return -1;
+            }
         else
         {
             fprintf( stderr, "check is_enabled failed\n");
@@ -501,7 +548,11 @@ int main(int argc, char * argv[])
             
 
     if (global_args.status == 1)
-        display_status();
+        if (display_status() == -1)
+        {
+            fprintf( stderr, "display_status failed\n");
+            return -1;
+        }
 
     return 0;
 }
