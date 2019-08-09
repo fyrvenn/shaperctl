@@ -45,7 +45,6 @@ struct global_args_t {
     int priv;
     int flag;
 };
-// global_args;
 
 static const char * optString = "P:r:p:edshv?";
 
@@ -547,7 +546,6 @@ int main(int argc, char * argv[])
             fprintf( stderr, "check is_enabled failed\n");
             return -1;
         }
-            
 
     if (args_l.status == 1)
         if (display_status(&args_l) == -1)
