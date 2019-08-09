@@ -38,7 +38,7 @@ $ make
 
 ## Author
 
-Katerina Budnikova e.budnikova@metrotek.ru
+Katerina Budnikova <e.budnikova@metrotek.ru>
 
 ## Date
 

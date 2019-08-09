@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <string.h>
 /* register size in bytes*/
-#define SIZE 2
+#define REGSIZE 2
 /* Numbers of significant redisters*/
 /* Port status, enabled|disabled*/
 #define STAT_REG 0
@@ -50,9 +50,9 @@ struct global_args_t {
     int flag;
 };
 
-static const char * optString = "P:r:p:edshv?";
+static const char * opt_string = "P:r:p:edshv?";
 
-static const struct option longOpts[] = {
+static const struct option long_opts[] = {
     { "port", required_argument, NULL, 'P' },
     { "set-rate", required_argument, NULL, 'r' },
     { "set-priv", required_argument, NULL, 'p' },
@@ -92,11 +92,11 @@ int reg_write(int addr, uint16_t val)
 
     if ((fp = fopen(etn, "wb")) == NULL) 
     {
-        printf("Cannot open file.");
+        printf("Cannot open file %s", etn);
         return -1;
     }
 
-    if (fseek(fp, addr*SIZE, SEEK_SET))
+    if (fseek(fp, addr*REGSIZE, SEEK_SET))
     {
         printf("seek error\n");
         return -1;
@@ -118,11 +118,11 @@ int reg_read(int addr, uint16_t * val)
 
     if ((fp = fopen(etn, "rb")) == NULL)
     {
-        printf("Cannot open file.");
+        printf("Cannot open file %s", etn);
         return -1;
     }
 
-    if (fseek(fp, addr*SIZE, SEEK_SET) )
+    if (fseek(fp, addr*REGSIZE, SEEK_SET) )
     {
         printf("seek error\n");
         return -1;
@@ -343,7 +343,7 @@ int display_status(struct global_args_t * global_args)
 
 int get_options(int argc, char *argv[], struct global_args_t * global_args)
 {
-    int opt = 0, longIndex = 0;
+    int opt = 0, long_index = 0;
     double s;
     char * end;
 
@@ -355,7 +355,7 @@ int get_options(int argc, char *argv[], struct global_args_t * global_args)
     global_args->flag = -1;
 
     while( opt != -1 ) {
-        opt = getopt_long( argc, argv, optString, longOpts, &longIndex );
+        opt = getopt_long( argc, argv, opt_string, long_opts, &long_index );
         switch( opt ) {
             case 'P': //port = {0..1};
                 if (strncmp(optarg, PORT_0, sizeof(PORT_0)) == 0)
@@ -415,7 +415,7 @@ int get_options(int argc, char *argv[], struct global_args_t * global_args)
                 exit(0);
                 break;
             case '?':
-                exit(-1);
+                return -1;
                 break;
             case 0:
                 return -1;
@@ -484,7 +484,7 @@ int main(int argc, char * argv[])
     }
 
     /* If not enoghf arguments was set: port was not set either port was set as --port=(0|1) or -P 0|1 without any other arguments.*/
-    if ((argc <= 2) || ((argc <= 3) && (args_l.port != -1) && (args_l.status == 0) && (args_l.flag == -1)))
+    if ((args_l.port != -1) && (args_l.status == 0) && (args_l.flag == -1))
     {
         printf("%s requires arguments.\n", argv[0]);
         display_usage(argv[0]);
@@ -511,17 +511,16 @@ int main(int argc, char * argv[])
             {
                 fprintf(stderr, "disable failed\n");
                 return -1;
-            } 
-            if (set_rate(args_l.sector, args_l.rate) == -1)
-            {
-                fprintf(stderr, "set_rate failed\n");
-                return -1;
             }
+            int rate = set_rate(args_l.sector, args_l.rate);
+            if (rate == -1)
+                fprintf(stderr, "set_rate failed\n");
             if (enable(args_l.sector) == -1)
             {
                 fprintf(stderr, "enable failed\n");
                 return -1;
             }
+            return rate;
         }
         else if (is_enabled(args_l.sector) == 0)
         {
@@ -547,16 +546,15 @@ int main(int argc, char * argv[])
                 fprintf(stderr, "disable failed\n");
                 return -1;
             }
-            if (set_priv(args_l.sector, args_l.priv) == -1)
-            {
+            int pr = set_priv(args_l.sector, args_l.priv);
+            if (pr == -1)
                 fprintf(stderr, "set_priv failed\n");
-                return -1;
-            }
             if (enable(args_l.sector) == -1)
             {
                 fprintf(stderr, "enable failed\n");
                 return -1;
             }
+            return pr;
         }
         else if (is_enabled(args_l.sector) == 0)
         {
@@ -574,12 +572,13 @@ int main(int argc, char * argv[])
     }
 
     if (args_l.status == 1)
+    {
         if (display_status(&args_l) == -1)
         {
             fprintf( stderr, "display_status failed\n");
             return -1;
         }
+    }
 
     return 0;
 }
-
