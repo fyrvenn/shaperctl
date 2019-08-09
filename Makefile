@@ -12,7 +12,7 @@ $(TARGET): $(TARGET).o
 	$(CC) $< -o $@
 
 $(TARGET).o: $(TARGET).c
-	$(CC) -c $< -o $@
+	$(CC) -Wall -Werror -c $< -o $@
 
 clean:
 	rm -rf $(TARGET).o

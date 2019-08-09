@@ -14,6 +14,10 @@
 /* Traffic priviledge*/
 #define PRIV_REG 4
 
+/* Acceptable types of port.*/
+#define PORT_0 "0"
+#define PORT_1 "1"
+
 /* Kinds of privileges.*/
 #define BOTH "both"
 #define USER "user"
@@ -61,10 +65,11 @@ static const struct option longOpts[] = {
 };
 
 /* Function read_offsets reads from files that contains positions of shaper's registers.*/
-int read_offsets(FILE * f, const char * path)
+int read_offsets(const char * path)
 {
+    FILE * f;
     char y[16];
-    int x = 0, cl;
+    int x = -1;
 
     if ((f = fopen(path, "rb")) == NULL)
     {
@@ -77,7 +82,7 @@ int read_offsets(FILE * f, const char * path)
         x = atoi(y);
     }
 
-    cl = fclose(f);
+    fclose(f);
     return x;
 }
 
@@ -103,7 +108,7 @@ int reg_write(int addr, uint16_t val)
         return -1;
     }
 
-    int cl = fclose(fp);
+    fclose(fp);
     return 0;
 }
 
@@ -128,7 +133,7 @@ int reg_read(int addr, uint16_t * val)
         return -1;
     }
 
-    int cl = fclose(fp);
+    fclose(fp);
     return 0;
 }
 
@@ -137,7 +142,7 @@ int enable(int addr)
     int val;
     uint16_t t = 0;
     
-    if (val = reg_read(addr, &t) == -1)
+    if (reg_read(addr, &t) == -1)
     {
         printf("read error\n");
         return -1;
@@ -158,7 +163,7 @@ int disable(int addr)
     int val;
     uint16_t t = 0;
 
-    if (val = reg_read(addr, &t) == -1)
+    if (reg_read(addr, &t) == -1)
     {
         printf("read error\n");
         return -1;
@@ -273,12 +278,12 @@ int define_priv(const char * priv)
     return x;
 }
 
-int display_version()
+void display_version()
 {
     printf("Shaper control\ncontrol hardware traffic shaper\nVersion 2.0\n");
 }
 
-int display_usage(char *progname)
+void display_usage(char *progname)
 {
     printf("\nShaper control\n\n");
     printf("%s\t-- control hardware traffic shaper\n\n", progname);
@@ -289,8 +294,6 @@ int display_usage(char *progname)
     printf("\t-e\t--enable\n");
     printf("\t-d\t--disable\n");
     printf("\t-s\t--status\n");
-
-    return 0;
 }
 
 int display_status(struct global_args_t * global_args)
@@ -355,9 +358,9 @@ int get_options(int argc, char *argv[], struct global_args_t * global_args)
         opt = getopt_long( argc, argv, optString, longOpts, &longIndex );
         switch( opt ) {
             case 'P': //port = {0..1};
-                if (strncmp(optarg, "0", sizeof(optarg)) == 0)
+                if (strncmp(optarg, PORT_0, sizeof(PORT_0)) == 0)
                     global_args->port = 0;
-                else if (strncmp(optarg, "1", sizeof(optarg)) == 0)
+                else if (strncmp(optarg, PORT_1, sizeof(PORT_1)) == 0)
                     global_args->port = 1;
                 else
                 {
@@ -435,23 +438,38 @@ int get_options(int argc, char *argv[], struct global_args_t * global_args)
 
 int main(int argc, char * argv[])
 {
-    FILE * cr_b, * cr_c, * sr_b, * sr_c;
-    int sector, numread, c;
-    int crb, crc, srb, src, address, port, index;
+    int crb, crc, srb, src;
     struct global_args_t args_l;
 
-    if (c = get_options(argc, argv, &args_l) == -1)
+    if (get_options(argc, argv, &args_l) != 0)
     {
         display_usage(argv[0]);
         return -1;
     }
-
-    crb = read_offsets(cr_b, cr_base);
-    crc = read_offsets(cr_c, cr_cnt);
-    srb = read_offsets(sr_b, sr_base);
-    src = read_offsets(sr_c, sr_cnt);
-
-    unsigned int speed = 0;
+    crb = read_offsets(cr_base);
+    if (crb == -1)
+    {
+        fprintf( stderr, "error read offset \n");
+        return -1;
+    }
+    crc = read_offsets(cr_cnt);
+    if (crc == -1)
+    {
+        fprintf( stderr, "error read offset \n");
+        return -1;
+    }
+    srb = read_offsets(sr_base);
+    if (srb == -1)
+    {
+        fprintf( stderr, "error read offset \n");
+        return -1;
+    }
+    src = read_offsets(sr_cnt);
+    if (src == -1)
+    {
+        fprintf( stderr, "error read offset \n");
+        return -1;
+    }
 
     switch (args_l.port)
     {
@@ -486,6 +504,7 @@ int main(int argc, char * argv[])
     }
 
     if (args_l.rate > 0)
+    {
         if (is_enabled(args_l.sector) == 1)
         {
             if (disable(args_l.sector) == -1)
@@ -505,18 +524,22 @@ int main(int argc, char * argv[])
             }
         }
         else if (is_enabled(args_l.sector) == 0)
+        {
             if (set_rate(args_l.sector, args_l.rate) == -1)
             {
                 fprintf(stderr, "set_rate failed\n");
                 return -1;
             }
-        else
-        {
-            fprintf(stderr, "check is_enabled failed\n");
-            return -1;
-        }        
+            else
+            {
+                fprintf(stderr, "check is_enabled failed\n");
+                return -1;
+            }
+        }
+    }
 
     if (args_l.priv != -1)
+    {
         if (is_enabled(args_l.sector) == 1)
         {
             if (disable(args_l.sector) == -1)
@@ -536,16 +559,19 @@ int main(int argc, char * argv[])
             }
         }
         else if (is_enabled(args_l.sector) == 0)
+        {
             if (set_priv(args_l.sector, args_l.priv) == -1)
             {
                 fprintf(stderr, "set_priv failed\n");
                 return -1;
             }
-        else
-        {
-            fprintf( stderr, "check is_enabled failed\n");
-            return -1;
+            else
+            {
+                fprintf( stderr, "check is_enabled failed\n");
+                return -1;
+            }
         }
+    }
 
     if (args_l.status == 1)
         if (display_status(&args_l) == -1)
